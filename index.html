@@ -109,6 +109,19 @@
             50% { opacity: 0.5; }
         }
         
+        #heartbeat {
+            font-size: 18px;
+            display: inline-block;
+            animation: heartbeat 1s infinite;
+            margin-right: 5px;
+        }
+        
+        @keyframes heartbeat {
+            0%, 100% { transform: scale(1); }
+            10% { transform: scale(1.2); }
+            20% { transform: scale(1); }
+        }
+        
         .content {
             padding: 30px;
         }
@@ -388,6 +401,7 @@
                 <span id="statusText">未连接</span>
             </div>
             <div class="status-item">
+                <span id="heartbeat">💚</span>
                 <span id="deviceInfo">--</span>
             </div>
         </div>
@@ -578,21 +592,30 @@
             const statusDot = document.getElementById('statusDot');
             const statusText = document.getElementById('statusText');
             const deviceInfo = document.getElementById('deviceInfo');
+            const heartbeat = document.getElementById('heartbeat');
             
             if (status === 'online') {
                 statusDot.classList.add('online');
                 statusText.textContent = '已连接';
                 deviceInfo.textContent = device;
+                heartbeat.style.display = 'inline-block';
             } else {
                 statusDot.classList.remove('online');
                 statusText.textContent = '未连接';
                 deviceInfo.textContent = '--';
+                heartbeat.style.display = 'none';
             }
         }
         
         // 处理MQTT消息
         function handleMessage(topic, message) {
             console.log('收到消息:', topic, message.toString());
+            
+            // 更新心跳显示
+            const heartbeat = document.getElementById('heartbeat');
+            if (heartbeat) {
+                heartbeat.textContent = heartbeat.textContent === '💚' ? '❤️' : '💚';
+            }
             
             try {
                 const data = JSON.parse(message.toString());
@@ -799,6 +822,8 @@
             console.log('ESP32远程控制台已加载');
             // 初始化GPIO列表（使用默认配置）
             renderGPIOList();
+            // 初始化时隐藏心跳
+            document.getElementById('heartbeat').style.display = 'none';
         });
     </script>
 </body>
