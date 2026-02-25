@@ -5,7 +5,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="description" content="ESP32远程控制台 - 通过MQTT远程控制ESP32设备">
     <meta name="theme-color" content="#667eea">
-    <title>ESP32远程控制台</title>
+    <title>ESP32远程控制台 v2.3.1</title>
+    
+    <!-- SHA-256库 -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/js-sha256/0.9.0/sha256.min.js"></script>
     
     <!-- MQTT.js库 - 使用国内CDN -->
     <script src="https://lib.baomitu.com/mqtt/5.3.5/mqtt.min.js" 
@@ -428,10 +431,144 @@
             font-size: 12px;
             border-top: 1px solid #e5e7eb;
         }
+        
+        /* 登录页面样式 */
+        .login-container {
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        
+        .login-box {
+            background: white;
+            border-radius: 20px;
+            box-shadow: var(--shadow-lg);
+            padding: 40px;
+            max-width: 400px;
+            width: 100%;
+            animation: slideIn 0.5s ease-out;
+        }
+        
+        .login-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        
+        .login-header h1 {
+            font-size: 24px;
+            color: #1f2937;
+            margin-bottom: 10px;
+        }
+        
+        .login-header p {
+            color: #6b7280;
+            font-size: 14px;
+        }
+        
+        .login-icon {
+            font-size: 48px;
+            margin-bottom: 20px;
+        }
+        
+        .password-input-group {
+            position: relative;
+            margin-bottom: 20px;
+        }
+        
+        .password-input-group input {
+            width: 100%;
+            padding: 12px 40px 12px 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        
+        .password-input-group input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .password-toggle {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            cursor: pointer;
+            color: #6b7280;
+            font-size: 18px;
+        }
+        
+        .error-message {
+            background: #fee2e2;
+            color: #dc2626;
+            padding: 10px;
+            border-radius: 8px;
+            font-size: 14px;
+            margin-bottom: 15px;
+            display: none;
+        }
+        
+        .error-message.show {
+            display: block;
+        }
+        
+        .settings-link {
+            text-align: center;
+            margin-top: 20px;
+            font-size: 14px;
+        }
+        
+        .settings-link a {
+            color: var(--primary-color);
+            text-decoration: none;
+        }
+        
+        .settings-link a:hover {
+            text-decoration: underline;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
+    <!-- 登录页面 -->
+    <div id="loginPage" class="login-container">
+        <div class="login-box">
+            <div class="login-header">
+                <div class="login-icon">🔐</div>
+                <h1>ESP32远程控制台</h1>
+                <p>请输入访问密码</p>
+            </div>
+            
+            <div class="error-message" id="loginError">
+                密码错误，请重试
+            </div>
+            
+            <form onsubmit="handleLogin(event)">
+                <div class="password-input-group">
+                    <input type="password" id="loginPassword" placeholder="输入密码" required autocomplete="current-password">
+                    <span class="password-toggle" onclick="togglePasswordVisibility('loginPassword')">👁️</span>
+                </div>
+                
+                <button type="submit" class="btn btn-primary btn-block">
+                    登录
+                </button>
+            </form>
+            
+            <div class="settings-link">
+                <a href="#" onclick="showPasswordHelp(); return false;">忘记密码？</a> |
+                <a href="#" onclick="showChangePassword(); return false;">修改密码</a>
+            </div>
+            
+            <div class="info-box" style="margin-top: 20px; font-size: 12px;">
+                <strong>💡 默认密码:</strong> esp32admin<br>
+                首次登录后请立即修改密码
+            </div>
+        </div>
+    </div>
+    <div class="container" id="mainApp" style="display: none;">
         <!-- 头部 -->
         <div class="header">
             <h1>🏠 ESP32远程控制台</h1>
@@ -551,11 +688,174 @@
         
         <!-- 页脚 -->
         <div class="footer">
-            ESP32远程控制台 v1.1 (调试增强版) | Powered by MQTT & Cloudflare Pages
+            ESP32远程控制台 v2.3.1 (输入GPIO支持 + 密码保护) | Powered by MQTT & Cloudflare Pages<br>
+            <a href="#" onclick="logout(); return false;" style="color: var(--danger-color); text-decoration: none;">退出登录</a>
         </div>
     </div>
 
     <script>
+        // ==================== 认证系统 ====================
+        const DEFAULT_PASSWORD = 'esp32admin';
+        const AUTH_KEY = 'cf_web_auth';
+        const AUTH_TIME_KEY = 'cf_web_auth_time';
+        const PASSWORD_KEY = 'cf_web_password';
+        const CONFIG_KEY = 'cf_web_config';
+        const SESSION_DURATION = 24 * 60 * 60 * 1000; // 24小时
+        
+        // 初始化密码（首次使用）
+        function initPassword() {
+            if (!localStorage.getItem(PASSWORD_KEY)) {
+                localStorage.setItem(PASSWORD_KEY, sha256(DEFAULT_PASSWORD));
+            }
+        }
+        
+        // 验证密码
+        function verifyPassword(password) {
+            const storedHash = localStorage.getItem(PASSWORD_KEY);
+            return sha256(password) === storedHash;
+        }
+        
+        // 检查认证状态
+        function isAuthenticated() {
+            const auth = localStorage.getItem(AUTH_KEY);
+            const time = localStorage.getItem(AUTH_TIME_KEY);
+            
+            if (!auth || !time) return false;
+            
+            const elapsed = Date.now() - parseInt(time);
+            if (elapsed > SESSION_DURATION) {
+                logout();
+                return false;
+            }
+            
+            return auth === localStorage.getItem(PASSWORD_KEY);
+        }
+        
+        // 登录处理
+        function handleLogin(event) {
+            event.preventDefault();
+            const password = document.getElementById('loginPassword').value;
+            const errorEl = document.getElementById('loginError');
+            
+            if (verifyPassword(password)) {
+                // 登录成功
+                const hash = sha256(password);
+                localStorage.setItem(AUTH_KEY, hash);
+                localStorage.setItem(AUTH_TIME_KEY, Date.now().toString());
+                
+                // 显示主应用
+                document.getElementById('loginPage').style.display = 'none';
+                document.getElementById('mainApp').style.display = 'block';
+                
+                // 初始化应用
+                initApp();
+            } else {
+                // 登录失败
+                errorEl.classList.add('show');
+                document.getElementById('loginPassword').value = '';
+                document.getElementById('loginPassword').focus();
+                
+                setTimeout(() => {
+                    errorEl.classList.remove('show');
+                }, 3000);
+            }
+        }
+        
+        // 退出登录
+        function logout() {
+            if (confirm('确定要退出登录吗？')) {
+                localStorage.removeItem(AUTH_KEY);
+                localStorage.removeItem(AUTH_TIME_KEY);
+                location.reload();
+            }
+        }
+        
+        // 切换密码可见性
+        function togglePasswordVisibility(inputId) {
+            const input = document.getElementById(inputId);
+            input.type = input.type === 'password' ? 'text' : 'password';
+        }
+        
+        // 显示密码帮助
+        function showPasswordHelp() {
+            alert('如果忘记密码，请清除浏览器localStorage数据，密码将重置为默认值：esp32admin\n\n操作方法：\n1. 按F12打开开发者工具\n2. 进入Application/存储 标签\n3. 找到Local Storage\n4. 删除 cf_web_password 项\n5. 刷新页面');
+        }
+        
+        // 显示修改密码对话框
+        function showChangePassword() {
+            const oldPassword = prompt('请输入当前密码：');
+            if (!oldPassword) return;
+            
+            if (!verifyPassword(oldPassword)) {
+                alert('当前密码错误！');
+                return;
+            }
+            
+            const newPassword = prompt('请输入新密码（至少6位）：');
+            if (!newPassword || newPassword.length < 6) {
+                alert('新密码至少需要6位！');
+                return;
+            }
+            
+            const confirmPassword = prompt('请再次输入新密码：');
+            if (newPassword !== confirmPassword) {
+                alert('两次输入的密码不一致！');
+                return;
+            }
+            
+            // 保存新密码
+            const newHash = sha256(newPassword);
+            localStorage.setItem(PASSWORD_KEY, newHash);
+            localStorage.setItem(AUTH_KEY, newHash);
+            
+            alert('密码修改成功！');
+        }
+        
+        // ==================== 配置管理 ====================
+        function loadConfig() {
+            const configStr = localStorage.getItem(CONFIG_KEY);
+            if (configStr) {
+                try {
+                    return JSON.parse(configStr);
+                } catch (e) {
+                    console.error('配置加载失败:', e);
+                }
+            }
+            return {
+                deviceId: '',
+                brokerUrl: 'broker.emqx.io',
+                autoConnect: false,
+                theme: 'light'
+            };
+        }
+        
+        function saveConfig(config) {
+            localStorage.setItem(CONFIG_KEY, JSON.stringify(config));
+        }
+        
+        // ==================== 应用初始化 ====================
+        function initApp() {
+            addDebugLog('应用初始化...', 'success');
+            
+            // 加载配置
+            const config = loadConfig();
+            if (config.deviceId) {
+                document.getElementById('deviceId').value = config.deviceId;
+            }
+            if (config.brokerUrl) {
+                document.getElementById('brokerUrl').value = config.brokerUrl;
+            }
+            
+            // 自动连接
+            if (config.autoConnect && config.deviceId) {
+                addDebugLog('自动连接设备...', 'info');
+                setTimeout(() => connectDevice(), 1000);
+            }
+            
+            addDebugLog('应用初始化完成', 'success');
+        }
+        
+        // ==================== 原有代码 ====================
         let client = null;
         let deviceId = '';
         let topicPrefix = '';
@@ -650,6 +950,14 @@
                 alert('请输入设备ID');
                 return;
             }
+            
+            // 保存配置
+            const config = loadConfig();
+            config.deviceId = deviceId;
+            config.brokerUrl = brokerUrl;
+            config.autoConnect = true;
+            saveConfig(config);
+            addDebugLog('配置已保存', 'success');
             
             const connectBtn = document.getElementById('connectBtn');
             connectBtn.disabled = true;
@@ -848,21 +1156,42 @@
             
             gpioList.forEach(gpio => {
                 const state = gpioStates[gpio.pin] || 0;
+                const isOutput = gpio.is_output !== false; // 默认为输出
                 const card = document.createElement('div');
                 card.className = 'gpio-card';
-                card.innerHTML = `
-                    <div class="gpio-header">
-                        <span class="gpio-name">📍 GPIO ${gpio.pin} - ${gpio.name}</span>
-                        <span class="gpio-state ${state ? 'on' : 'off'}" id="state-${gpio.pin}">
-                            ${state ? '● 开启' : '○ 关闭'}
-                        </span>
-                    </div>
-                    <div class="gpio-controls">
-                        <button class="btn btn-success" onclick="controlGPIO(${gpio.pin}, 1)">开启</button>
-                        <button class="btn btn-danger" onclick="controlGPIO(${gpio.pin}, 0)">关闭</button>
-                        <button class="btn btn-warning" onclick="toggleGPIO(${gpio.pin})">切换</button>
-                    </div>
-                `;
+                
+                // 根据GPIO类型显示不同的内容
+                if (isOutput) {
+                    // 输出GPIO - 显示控制按钮
+                    card.innerHTML = `
+                        <div class="gpio-header">
+                            <span class="gpio-name">📍 GPIO ${gpio.pin} - ${gpio.name}</span>
+                            <span class="gpio-state ${state ? 'on' : 'off'}" id="state-${gpio.pin}">
+                                ${state ? '● 开启' : '○ 关闭'}
+                            </span>
+                        </div>
+                        <div class="gpio-controls">
+                            <button class="btn btn-success" onclick="controlGPIO(${gpio.pin}, 1)">开启</button>
+                            <button class="btn btn-danger" onclick="controlGPIO(${gpio.pin}, 0)">关闭</button>
+                            <button class="btn btn-warning" onclick="toggleGPIO(${gpio.pin})">切换</button>
+                        </div>
+                    `;
+                } else {
+                    // 输入GPIO - 只显示状态
+                    card.innerHTML = `
+                        <div class="gpio-header">
+                            <span class="gpio-name">📥 GPIO ${gpio.pin} - ${gpio.name} (输入)</span>
+                            <span class="gpio-state ${state ? 'on' : 'off'}" id="state-${gpio.pin}">
+                                ${state ? '● 高电平' : '○ 低电平'}
+                            </span>
+                        </div>
+                        <div class="info-box" style="margin-top: 10px; font-size: 13px;">
+                            <strong>只读状态</strong><br>
+                            此GPIO配置为输入模式，无法控制，仅显示当前电平状态
+                        </div>
+                    `;
+                }
+                
                 listEl.appendChild(card);
             });
         }
@@ -1001,8 +1330,23 @@
         
         // 页面加载完成
         window.addEventListener('load', () => {
+            // 初始化密码系统
+            initPassword();
+            
+            // 检查认证状态
+            if (isAuthenticated()) {
+                // 已登录，显示主应用
+                document.getElementById('loginPage').style.display = 'none';
+                document.getElementById('mainApp').style.display = 'block';
+                initApp();
+            } else {
+                // 未登录，显示登录页面
+                document.getElementById('loginPage').style.display = 'flex';
+                document.getElementById('mainApp').style.display = 'none';
+            }
+            
             addDebugLog('ESP32远程控制台已加载', 'success');
-            addDebugLog('版本: v1.1 (调试增强版)', 'info');
+            addDebugLog('版本: v2.3.1 (输入GPIO支持 + 密码保护)', 'info');
             
             // 检查MQTT库
             if (typeof mqtt === 'undefined') {
