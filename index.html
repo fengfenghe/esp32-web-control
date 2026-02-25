@@ -1,0 +1,805 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="description" content="ESP32远程控制台 - 通过MQTT远程控制ESP32设备">
+    <meta name="theme-color" content="#667eea">
+    <title>ESP32远程控制台</title>
+    
+    <!-- MQTT.js库 -->
+    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        :root {
+            --primary-color: #667eea;
+            --primary-dark: #5568d3;
+            --success-color: #10b981;
+            --danger-color: #ef4444;
+            --warning-color: #f59e0b;
+            --bg-gradient: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            --shadow: 0 4px 6px rgba(0,0,0,0.1);
+            --shadow-lg: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+            background: var(--bg-gradient);
+            min-height: 100vh;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            box-shadow: var(--shadow-lg);
+            overflow: hidden;
+            animation: slideIn 0.5s ease-out;
+        }
+        
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+        
+        .header {
+            background: var(--bg-gradient);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            position: relative;
+        }
+        
+        .header h1 {
+            font-size: 28px;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+        
+        .header .subtitle {
+            font-size: 14px;
+            opacity: 0.9;
+        }
+        
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 15px 30px;
+            background: #f9fafb;
+            border-bottom: 1px solid #e5e7eb;
+        }
+        
+        .status-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+        }
+        
+        .status-dot {
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: #9ca3af;
+            animation: pulse 2s infinite;
+        }
+        
+        .status-dot.online {
+            background: var(--success-color);
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .content {
+            padding: 30px;
+        }
+        
+        .section {
+            margin-bottom: 30px;
+        }
+        
+        .section-title {
+            font-size: 18px;
+            font-weight: 600;
+            color: #1f2937;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .input-group {
+            margin-bottom: 15px;
+        }
+        
+        .input-group label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            color: #374151;
+            margin-bottom: 5px;
+        }
+        
+        .input-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e5e7eb;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: all 0.3s;
+        }
+        
+        .input-group input:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 10px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            color: white;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--shadow);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        .btn:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .btn-primary {
+            background: var(--primary-color);
+        }
+        
+        .btn-primary:hover {
+            background: var(--primary-dark);
+        }
+        
+        .btn-success {
+            background: var(--success-color);
+        }
+        
+        .btn-danger {
+            background: var(--danger-color);
+        }
+        
+        .btn-warning {
+            background: var(--warning-color);
+        }
+        
+        .btn-block {
+            width: 100%;
+        }
+        
+        .gpio-grid {
+            display: grid;
+            gap: 15px;
+        }
+        
+        .gpio-card {
+            background: #f9fafb;
+            border: 2px solid #e5e7eb;
+            border-radius: 12px;
+            padding: 20px;
+            transition: all 0.3s;
+        }
+        
+        .gpio-card:hover {
+            border-color: var(--primary-color);
+            transform: translateY(-2px);
+            box-shadow: var(--shadow);
+        }
+        
+        .gpio-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .gpio-name {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1f2937;
+        }
+        
+        .gpio-state {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .gpio-state.on {
+            background: #d1fae5;
+            color: var(--success-color);
+        }
+        
+        .gpio-state.off {
+            background: #fee2e2;
+            color: var(--danger-color);
+        }
+        
+        .gpio-controls {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
+            gap: 10px;
+        }
+        
+        .info-box {
+            background: #eff6ff;
+            border: 2px solid #3b82f6;
+            border-radius: 10px;
+            padding: 15px;
+            font-size: 14px;
+            color: #1e40af;
+            line-height: 1.6;
+        }
+        
+        .info-box strong {
+            display: block;
+            margin-bottom: 5px;
+        }
+        
+        .hidden {
+            display: none !important;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255,255,255,0.3);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.8s linear infinite;
+        }
+        
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+        
+        .tabs {
+            display: flex;
+            border-bottom: 2px solid #e5e7eb;
+            margin-bottom: 20px;
+        }
+        
+        .tab {
+            padding: 12px 24px;
+            cursor: pointer;
+            border-bottom: 3px solid transparent;
+            transition: all 0.3s;
+            font-weight: 500;
+            color: #6b7280;
+        }
+        
+        .tab:hover {
+            color: var(--primary-color);
+        }
+        
+        .tab.active {
+            color: var(--primary-color);
+            border-bottom-color: var(--primary-color);
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+            animation: fadeIn 0.3s;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        @media (max-width: 640px) {
+            body {
+                padding: 0;
+            }
+            
+            .container {
+                border-radius: 0;
+                min-height: 100vh;
+            }
+            
+            .content {
+                padding: 20px;
+            }
+            
+            .gpio-controls {
+                grid-template-columns: 1fr;
+            }
+            
+            .tabs {
+                overflow-x: auto;
+            }
+            
+            .tab {
+                white-space: nowrap;
+            }
+        }
+        
+        .footer {
+            text-align: center;
+            padding: 20px;
+            color: #6b7280;
+            font-size: 12px;
+            border-top: 1px solid #e5e7eb;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- 头部 -->
+        <div class="header">
+            <h1>🏠 ESP32远程控制台</h1>
+            <div class="subtitle">通过MQTT远程控制您的ESP32设备</div>
+        </div>
+        
+        <!-- 状态栏 -->
+        <div class="status-bar">
+            <div class="status-item">
+                <span class="status-dot" id="statusDot"></span>
+                <span id="statusText">未连接</span>
+            </div>
+            <div class="status-item">
+                <span id="deviceInfo">--</span>
+            </div>
+        </div>
+        
+        <!-- 主内容 -->
+        <div class="content">
+            <!-- 连接部分 -->
+            <div id="connectSection">
+                <div class="section">
+                    <div class="section-title">📡 连接设备</div>
+                    
+                    <div class="input-group">
+                        <label for="deviceId">设备ID</label>
+                        <input type="text" id="deviceId" placeholder="例如: esp32_8173a0" value="esp32_8173a0">
+                    </div>
+                    
+                    <div class="input-group">
+                        <label for="brokerUrl">MQTT Broker</label>
+                        <input type="text" id="brokerUrl" placeholder="broker.emqx.io" value="broker.emqx.io">
+                    </div>
+                    
+                    <button class="btn btn-primary btn-block" onclick="connectDevice()" id="connectBtn">
+                        <span>连接设备</span>
+                    </button>
+                    
+                    <div class="info-box" style="margin-top: 20px;">
+                        <strong>💡 使用提示:</strong>
+                        1. 设备ID可以在ESP32的Web界面查看<br>
+                        2. 默认使用免费的EMQX Cloud服务器<br>
+                        3. 确保ESP32已连接WiFi并启用MQTT
+                    </div>
+                </div>
+            </div>
+            
+            <!-- 控制部分 -->
+            <div id="controlSection" class="hidden">
+                <!-- 标签页 -->
+                <div class="tabs">
+                    <div class="tab active" onclick="switchTab('gpio')">GPIO控制</div>
+                    <div class="tab" onclick="switchTab('system')">系统信息</div>
+                </div>
+                
+                <!-- GPIO控制标签 -->
+                <div id="gpioTab" class="tab-content active">
+                    <div class="section">
+                        <div class="section-title">
+                            ⚡ GPIO控制
+                            <button class="btn btn-primary" style="margin-left: auto; padding: 8px 16px;" onclick="refreshGPIO()">
+                                刷新
+                            </button>
+                        </div>
+                        <div class="gpio-grid" id="gpioList">
+                            <!-- GPIO卡片将动态生成 -->
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- 系统信息标签 -->
+                <div id="systemTab" class="tab-content">
+                    <div class="section">
+                        <div class="section-title">
+                            📊 系统信息
+                            <button class="btn btn-primary" style="margin-left: auto; padding: 8px 16px;" onclick="refreshSystem()">
+                                刷新
+                            </button>
+                        </div>
+                        <div id="systemInfo">
+                            <div class="info-box">
+                                <strong>设备信息</strong>
+                                <div id="systemDetails">加载中...</div>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="section">
+                        <div class="section-title">🔧 系统操作</div>
+                        <button class="btn btn-danger btn-block" onclick="rebootDevice()">
+                            重启设备
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 页脚 -->
+        <div class="footer">
+            ESP32远程控制台 v1.0 | Powered by MQTT & Cloudflare Pages
+        </div>
+    </div>
+
+    <script>
+        let client = null;
+        let deviceId = '';
+        let topicPrefix = '';
+        let currentTab = 'gpio';
+        
+        // GPIO配置（默认）
+        const defaultGPIOs = [
+            { pin: 2, name: 'LED灯' },
+            { pin: 13, name: '继电器1' },
+            { pin: 14, name: '继电器2' },
+            { pin: 15, name: '继电器3' },
+            { pin: 16, name: '继电器4' },
+            { pin: 17, name: '继电器5' }
+        ];
+        
+        let gpioStates = {};
+        
+        // 切换标签页
+        function switchTab(tab) {
+            currentTab = tab;
+            
+            // 更新标签样式
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+            
+            event.target.classList.add('active');
+            document.getElementById(tab + 'Tab').classList.add('active');
+        }
+        
+        // 连接设备
+        async function connectDevice() {
+            deviceId = document.getElementById('deviceId').value.trim();
+            const brokerUrl = document.getElementById('brokerUrl').value.trim();
+            
+            if (!deviceId) {
+                alert('请输入设备ID');
+                return;
+            }
+            
+            const connectBtn = document.getElementById('connectBtn');
+            connectBtn.disabled = true;
+            connectBtn.innerHTML = '<span class="loading"></span><span>连接中...</span>';
+            
+            topicPrefix = deviceId;
+            
+            try {
+                // 连接MQTT Broker
+                const clientId = 'web_' + Math.random().toString(16).substr(2, 8);
+                client = mqtt.connect(`wss://${brokerUrl}:8084/mqtt`, {
+                    clientId: clientId,
+                    clean: true,
+                    reconnectPeriod: 5000,
+                    connectTimeout: 10000
+                });
+                
+                client.on('connect', () => {
+                    console.log('MQTT已连接');
+                    updateStatus('online', deviceId);
+                    
+                    // 订阅主题
+                    client.subscribe(`${topicPrefix}/status/#`);
+                    client.subscribe(`${topicPrefix}/response`);
+                    
+                    // 显示控制界面
+                    document.getElementById('connectSection').classList.add('hidden');
+                    document.getElementById('controlSection').classList.remove('hidden');
+                    
+                    // 请求GPIO状态
+                    setTimeout(() => refreshGPIO(), 500);
+                });
+                
+                client.on('message', handleMessage);
+                
+                client.on('error', (err) => {
+                    console.error('MQTT错误:', err);
+                    updateStatus('offline');
+                    connectBtn.disabled = false;
+                    connectBtn.innerHTML = '<span>连接设备</span>';
+                    alert('连接失败: ' + err.message);
+                });
+                
+                client.on('close', () => {
+                    console.log('MQTT连接关闭');
+                    updateStatus('offline');
+                });
+                
+            } catch (err) {
+                console.error('连接错误:', err);
+                alert('连接失败: ' + err.message);
+                connectBtn.disabled = false;
+                connectBtn.innerHTML = '<span>连接设备</span>';
+            }
+        }
+        
+        // 更新状态显示
+        function updateStatus(status, device = '') {
+            const statusDot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+            const deviceInfo = document.getElementById('deviceInfo');
+            
+            if (status === 'online') {
+                statusDot.classList.add('online');
+                statusText.textContent = '已连接';
+                deviceInfo.textContent = device;
+            } else {
+                statusDot.classList.remove('online');
+                statusText.textContent = '未连接';
+                deviceInfo.textContent = '--';
+            }
+        }
+        
+        // 处理MQTT消息
+        function handleMessage(topic, message) {
+            console.log('收到消息:', topic, message.toString());
+            
+            try {
+                const data = JSON.parse(message.toString());
+                
+                // 处理GPIO状态更新
+                if (topic.includes('/status/gpio')) {
+                    updateGPIOState(data);
+                }
+                
+                // 处理响应
+                if (topic.includes('/response')) {
+                    handleResponse(data);
+                }
+                
+                // 处理系统状态
+                if (topic.includes('/status/system')) {
+                    updateSystemInfo(data);
+                }
+                
+            } catch (e) {
+                console.error('解析消息失败:', e);
+            }
+        }
+        
+        // 更新GPIO状态
+        function updateGPIOState(data) {
+            if (data.data) {
+                const gpio = data.data;
+                gpioStates[gpio.pin] = gpio.state;
+                
+                // 更新界面
+                const stateEl = document.getElementById(`state-${gpio.pin}`);
+                if (stateEl) {
+                    stateEl.className = gpio.state ? 'gpio-state on' : 'gpio-state off';
+                    stateEl.innerHTML = gpio.state ? '● 开启' : '○ 关闭';
+                }
+            }
+        }
+        
+        // 处理响应
+        function handleResponse(data) {
+            if (data.result === 'success' && data.data) {
+                // 如果是GPIO数组
+                if (Array.isArray(data.data)) {
+                    data.data.forEach(gpio => {
+                        gpioStates[gpio.pin] = gpio.state;
+                    });
+                    renderGPIOList(data.data);
+                }
+                // 如果是单个GPIO
+                else if (data.data.pin !== undefined) {
+                    updateGPIOState({ data: data.data });
+                }
+                // 如果是系统信息
+                else if (data.data.free_heap !== undefined) {
+                    updateSystemInfo(data.data);
+                }
+            }
+        }
+        
+        // 渲染GPIO列表
+        function renderGPIOList(gpios = null) {
+            const listEl = document.getElementById('gpioList');
+            listEl.innerHTML = '';
+            
+            const gpioList = gpios || defaultGPIOs;
+            
+            gpioList.forEach(gpio => {
+                const state = gpioStates[gpio.pin] || 0;
+                const card = document.createElement('div');
+                card.className = 'gpio-card';
+                card.innerHTML = `
+                    <div class="gpio-header">
+                        <span class="gpio-name">📍 GPIO ${gpio.pin} - ${gpio.name}</span>
+                        <span class="gpio-state ${state ? 'on' : 'off'}" id="state-${gpio.pin}">
+                            ${state ? '● 开启' : '○ 关闭'}
+                        </span>
+                    </div>
+                    <div class="gpio-controls">
+                        <button class="btn btn-success" onclick="controlGPIO(${gpio.pin}, 1)">开启</button>
+                        <button class="btn btn-danger" onclick="controlGPIO(${gpio.pin}, 0)">关闭</button>
+                        <button class="btn btn-warning" onclick="toggleGPIO(${gpio.pin})">切换</button>
+                    </div>
+                `;
+                listEl.appendChild(card);
+            });
+        }
+        
+        // 控制GPIO
+        function controlGPIO(pin, state) {
+            if (!client || !client.connected) {
+                alert('设备未连接');
+                return;
+            }
+            
+            const msg = {
+                msg_id: Date.now().toString(),
+                timestamp: Math.floor(Date.now() / 1000),
+                command: 'gpio_set',
+                params: { pin: pin, state: state }
+            };
+            
+            client.publish(`${topicPrefix}/cmd/gpio/set`, JSON.stringify(msg));
+            console.log('发送命令:', msg);
+        }
+        
+        // 切换GPIO
+        function toggleGPIO(pin) {
+            if (!client || !client.connected) {
+                alert('设备未连接');
+                return;
+            }
+            
+            const msg = {
+                msg_id: Date.now().toString(),
+                timestamp: Math.floor(Date.now() / 1000),
+                command: 'gpio_toggle',
+                params: { pin: pin }
+            };
+            
+            client.publish(`${topicPrefix}/cmd/gpio/toggle`, JSON.stringify(msg));
+            console.log('发送命令:', msg);
+        }
+        
+        // 刷新GPIO状态
+        function refreshGPIO() {
+            if (!client || !client.connected) {
+                alert('设备未连接');
+                return;
+            }
+            
+            const msg = {
+                msg_id: Date.now().toString(),
+                timestamp: Math.floor(Date.now() / 1000),
+                command: 'gpio_get_all'
+            };
+            
+            client.publish(`${topicPrefix}/cmd/gpio/get`, JSON.stringify(msg));
+        }
+        
+        // 刷新系统信息
+        function refreshSystem() {
+            if (!client || !client.connected) {
+                alert('设备未连接');
+                return;
+            }
+            
+            const msg = {
+                msg_id: Date.now().toString(),
+                timestamp: Math.floor(Date.now() / 1000),
+                command: 'system_status'
+            };
+            
+            client.publish(`${topicPrefix}/cmd/system/status`, JSON.stringify(msg));
+        }
+        
+        // 更新系统信息
+        function updateSystemInfo(data) {
+            const detailsEl = document.getElementById('systemDetails');
+            detailsEl.innerHTML = `
+                <strong>内存信息:</strong><br>
+                空闲内存: ${(data.free_heap / 1024).toFixed(2)} KB<br>
+                最小空闲: ${(data.min_free_heap / 1024).toFixed(2)} KB<br>
+                <br>
+                <strong>运行时间:</strong><br>
+                ${formatUptime(data.uptime)}<br>
+                <br>
+                <strong>网络信息:</strong><br>
+                MAC地址: ${data.mac || '--'}
+            `;
+        }
+        
+        // 格式化运行时间
+        function formatUptime(seconds) {
+            const days = Math.floor(seconds / 86400);
+            const hours = Math.floor((seconds % 86400) / 3600);
+            const minutes = Math.floor((seconds % 3600) / 60);
+            return `${days}天 ${hours}小时 ${minutes}分钟`;
+        }
+        
+        // 重启设备
+        function rebootDevice() {
+            if (!confirm('确定要重启设备吗？')) {
+                return;
+            }
+            
+            if (!client || !client.connected) {
+                alert('设备未连接');
+                return;
+            }
+            
+            const msg = {
+                msg_id: Date.now().toString(),
+                timestamp: Math.floor(Date.now() / 1000),
+                command: 'system_reboot'
+            };
+            
+            client.publish(`${topicPrefix}/cmd/system/reboot`, JSON.stringify(msg));
+            alert('重启命令已发送，设备将在3秒后重启');
+        }
+        
+        // 页面加载完成
+        window.addEventListener('load', () => {
+            console.log('ESP32远程控制台已加载');
+            // 初始化GPIO列表（使用默认配置）
+            renderGPIOList();
+        });
+    </script>
+</body>
+</html>
