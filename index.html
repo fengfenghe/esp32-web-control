@@ -477,7 +477,7 @@
                     
                     <div class="input-group">
                         <label for="deviceId">设备ID</label>
-                        <input type="text" id="deviceId" placeholder="例如: esp32_8173a0" value="esp32_8173a0">
+                        <input type="text" id="deviceId" placeholder="例如: 8173a0" value="8173a0">
                     </div>
                     
                     <div class="input-group">
@@ -491,9 +491,10 @@
                     
                     <div class="info-box" style="margin-top: 20px;">
                         <strong>💡 使用提示:</strong>
-                        1. 设备ID可以在ESP32的Web界面查看<br>
-                        2. 默认使用免费的EMQX Cloud服务器<br>
-                        3. 确保ESP32已连接WiFi并启用MQTT
+                        1. 设备ID是MAC地址后6位（例如：8173a0）<br>
+                        2. 可以在ESP32的Web界面查看完整设备ID<br>
+                        3. 默认使用免费的EMQX Cloud服务器<br>
+                        4. 确保ESP32已连接WiFi并启用MQTT
                     </div>
                 </div>
             </div>
@@ -657,7 +658,8 @@
             addDebugLog(`开始连接设备: ${deviceId}`, 'info');
             addDebugLog(`MQTT Broker: ${brokerUrl}:8084`, 'info');
             
-            topicPrefix = deviceId;
+            // ESP32使用 esp32/{device_id} 格式
+            topicPrefix = `esp32/${deviceId}`;
             
             try {
                 // 连接MQTT Broker
