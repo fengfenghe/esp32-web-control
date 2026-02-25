@@ -406,6 +406,24 @@
             </div>
         </div>
         
+        <!-- 调试信息栏 -->
+        <div style="background: #fef3c7; border-bottom: 1px solid #fbbf24; padding: 10px 30px; font-size: 12px; font-family: monospace;">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <strong>🔍 调试信息:</strong>
+                    <span id="debugInfo">等待连接...</span>
+                </div>
+                <button class="btn" style="padding: 4px 12px; font-size: 11px; background: #f59e0b;" onclick="toggleDebugLog()">
+                    <span id="debugToggle">显示日志</span>
+                </button>
+            </div>
+        </div>
+        
+        <!-- 调试日志 -->
+        <div id="debugLog" class="hidden" style="background: #1f2937; color: #10b981; padding: 15px 30px; max-height: 200px; overflow-y: auto; font-family: monospace; font-size: 11px; border-bottom: 1px solid #374151;">
+            <div id="debugLogContent"></div>
+        </div>
+        
         <!-- 主内容 -->
         <div class="content">
             <!-- 连接部分 -->
@@ -488,7 +506,7 @@
         
         <!-- 页脚 -->
         <div class="footer">
-            ESP32远程控制台 v1.0 | Powered by MQTT & Cloudflare Pages
+            ESP32远程控制台 v1.1 (调试增强版) | Powered by MQTT & Cloudflare Pages
         </div>
     </div>
 
@@ -497,6 +515,8 @@
         let deviceId = '';
         let topicPrefix = '';
         let currentTab = 'gpio';
+        let debugLogVisible = false;
+        let messageCount = 0;
         
         // GPIO配置（默认）
         const defaultGPIOs = [
@@ -510,6 +530,51 @@
         
         let gpioStates = {};
         
+        // 添加调试日志
+        function addDebugLog(message, type = 'info') {
+            const logContent = document.getElementById('debugLogContent');
+            const timestamp = new Date().toLocaleTimeString();
+            const colors = {
+                info: '#10b981',
+                success: '#22c55e',
+                warning: '#f59e0b',
+                error: '#ef4444',
+                send: '#3b82f6',
+                receive: '#8b5cf6'
+            };
+            
+            const logEntry = document.createElement('div');
+            logEntry.style.color = colors[type] || colors.info;
+            logEntry.style.marginBottom = '3px';
+            logEntry.innerHTML = `[${timestamp}] ${message}`;
+            
+            logContent.appendChild(logEntry);
+            logContent.scrollTop = logContent.scrollHeight;
+            
+            // 更新调试信息栏
+            document.getElementById('debugInfo').textContent = message;
+            
+            // 保持最多100条日志
+            if (logContent.children.length > 100) {
+                logContent.removeChild(logContent.firstChild);
+            }
+        }
+        
+        // 切换调试日志显示
+        function toggleDebugLog() {
+            debugLogVisible = !debugLogVisible;
+            const logEl = document.getElementById('debugLog');
+            const toggleBtn = document.getElementById('debugToggle');
+            
+            if (debugLogVisible) {
+                logEl.classList.remove('hidden');
+                toggleBtn.textContent = '隐藏日志';
+            } else {
+                logEl.classList.add('hidden');
+                toggleBtn.textContent = '显示日志';
+            }
+        }
+        
         // 切换标签页
         function switchTab(tab) {
             currentTab = tab;
@@ -520,6 +585,8 @@
             
             event.target.classList.add('active');
             document.getElementById(tab + 'Tab').classList.add('active');
+            
+            addDebugLog(`切换到${tab === 'gpio' ? 'GPIO控制' : '系统信息'}标签`, 'info');
         }
         
         // 连接设备
@@ -536,12 +603,20 @@
             connectBtn.disabled = true;
             connectBtn.innerHTML = '<span class="loading"></span><span>连接中...</span>';
             
+            addDebugLog(`开始连接设备: ${deviceId}`, 'info');
+            addDebugLog(`MQTT Broker: ${brokerUrl}:8084`, 'info');
+            
             topicPrefix = deviceId;
             
             try {
                 // 连接MQTT Broker
                 const clientId = 'web_' + Math.random().toString(16).substr(2, 8);
-                client = mqtt.connect(`wss://${brokerUrl}:8084/mqtt`, {
+                addDebugLog(`客户端ID: ${clientId}`, 'info');
+                
+                const brokerWss = `wss://${brokerUrl}:8084/mqtt`;
+                addDebugLog(`连接地址: ${brokerWss}`, 'info');
+                
+                client = mqtt.connect(brokerWss, {
                     clientId: clientId,
                     clean: true,
                     reconnectPeriod: 5000,
@@ -549,25 +624,38 @@
                 });
                 
                 client.on('connect', () => {
-                    console.log('MQTT已连接');
+                    addDebugLog('✓ MQTT连接成功', 'success');
                     updateStatus('online', deviceId);
                     
                     // 订阅主题
-                    client.subscribe(`${topicPrefix}/status/#`);
-                    client.subscribe(`${topicPrefix}/response`);
+                    const topics = [
+                        `${topicPrefix}/status/#`,
+                        `${topicPrefix}/response`
+                    ];
+                    
+                    topics.forEach(topic => {
+                        client.subscribe(topic, (err) => {
+                            if (err) {
+                                addDebugLog(`✗ 订阅失败: ${topic}`, 'error');
+                            } else {
+                                addDebugLog(`✓ 已订阅: ${topic}`, 'success');
+                            }
+                        });
+                    });
                     
                     // 显示控制界面
                     document.getElementById('connectSection').classList.add('hidden');
                     document.getElementById('controlSection').classList.remove('hidden');
                     
                     // 请求GPIO状态
+                    addDebugLog('发送GPIO状态查询请求...', 'send');
                     setTimeout(() => refreshGPIO(), 500);
                 });
                 
                 client.on('message', handleMessage);
                 
                 client.on('error', (err) => {
-                    console.error('MQTT错误:', err);
+                    addDebugLog(`✗ MQTT错误: ${err.message}`, 'error');
                     updateStatus('offline');
                     connectBtn.disabled = false;
                     connectBtn.innerHTML = '<span>连接设备</span>';
@@ -575,12 +663,16 @@
                 });
                 
                 client.on('close', () => {
-                    console.log('MQTT连接关闭');
+                    addDebugLog('MQTT连接已关闭', 'warning');
                     updateStatus('offline');
                 });
                 
+                client.on('reconnect', () => {
+                    addDebugLog('正在重新连接...', 'warning');
+                });
+                
             } catch (err) {
-                console.error('连接错误:', err);
+                addDebugLog(`✗ 连接异常: ${err.message}`, 'error');
                 alert('连接失败: ' + err.message);
                 connectBtn.disabled = false;
                 connectBtn.innerHTML = '<span>连接设备</span>';
@@ -609,7 +701,11 @@
         
         // 处理MQTT消息
         function handleMessage(topic, message) {
-            console.log('收到消息:', topic, message.toString());
+            messageCount++;
+            const msgStr = message.toString();
+            
+            addDebugLog(`← 收到消息 #${messageCount} [${topic}]`, 'receive');
+            addDebugLog(`  内容: ${msgStr.substring(0, 100)}${msgStr.length > 100 ? '...' : ''}`, 'receive');
             
             // 更新心跳显示
             const heartbeat = document.getElementById('heartbeat');
@@ -618,25 +714,29 @@
             }
             
             try {
-                const data = JSON.parse(message.toString());
+                const data = JSON.parse(msgStr);
+                addDebugLog(`  解析成功: ${JSON.stringify(data).substring(0, 80)}...`, 'receive');
                 
                 // 处理GPIO状态更新
                 if (topic.includes('/status/gpio')) {
+                    addDebugLog('  → 处理GPIO状态更新', 'info');
                     updateGPIOState(data);
                 }
                 
                 // 处理响应
                 if (topic.includes('/response')) {
+                    addDebugLog('  → 处理响应消息', 'info');
                     handleResponse(data);
                 }
                 
                 // 处理系统状态
                 if (topic.includes('/status/system')) {
+                    addDebugLog('  → 处理系统状态', 'info');
                     updateSystemInfo(data);
                 }
                 
             } catch (e) {
-                console.error('解析消息失败:', e);
+                addDebugLog(`✗ 解析消息失败: ${e.message}`, 'error');
             }
         }
         
@@ -645,6 +745,8 @@
             if (data.data) {
                 const gpio = data.data;
                 gpioStates[gpio.pin] = gpio.state;
+                
+                addDebugLog(`  GPIO ${gpio.pin} 状态: ${gpio.state ? 'ON' : 'OFF'}`, 'success');
                 
                 // 更新界面
                 const stateEl = document.getElementById(`state-${gpio.pin}`);
@@ -657,9 +759,12 @@
         
         // 处理响应
         function handleResponse(data) {
+            addDebugLog(`  响应结果: ${data.result}`, data.result === 'success' ? 'success' : 'error');
+            
             if (data.result === 'success' && data.data) {
                 // 如果是GPIO数组
                 if (Array.isArray(data.data)) {
+                    addDebugLog(`  收到${data.data.length}个GPIO状态`, 'success');
                     data.data.forEach(gpio => {
                         gpioStates[gpio.pin] = gpio.state;
                     });
@@ -671,8 +776,11 @@
                 }
                 // 如果是系统信息
                 else if (data.data.free_heap !== undefined) {
+                    addDebugLog(`  系统内存: ${(data.data.free_heap / 1024).toFixed(2)} KB`, 'success');
                     updateSystemInfo(data.data);
                 }
+            } else if (data.result === 'error') {
+                addDebugLog(`  错误信息: ${data.message || '未知错误'}`, 'error');
             }
         }
         
@@ -682,6 +790,8 @@
             listEl.innerHTML = '';
             
             const gpioList = gpios || defaultGPIOs;
+            
+            addDebugLog(`渲染${gpioList.length}个GPIO控件`, 'info');
             
             gpioList.forEach(gpio => {
                 const state = gpioStates[gpio.pin] || 0;
@@ -718,8 +828,11 @@
                 params: { pin: pin, state: state }
             };
             
-            client.publish(`${topicPrefix}/cmd/gpio/set`, JSON.stringify(msg));
-            console.log('发送命令:', msg);
+            const topic = `${topicPrefix}/cmd/gpio/set`;
+            addDebugLog(`→ 发送GPIO控制: GPIO${pin}=${state ? 'ON' : 'OFF'}`, 'send');
+            addDebugLog(`  主题: ${topic}`, 'send');
+            
+            client.publish(topic, JSON.stringify(msg));
         }
         
         // 切换GPIO
@@ -736,8 +849,11 @@
                 params: { pin: pin }
             };
             
-            client.publish(`${topicPrefix}/cmd/gpio/toggle`, JSON.stringify(msg));
-            console.log('发送命令:', msg);
+            const topic = `${topicPrefix}/cmd/gpio/toggle`;
+            addDebugLog(`→ 发送GPIO切换: GPIO${pin}`, 'send');
+            addDebugLog(`  主题: ${topic}`, 'send');
+            
+            client.publish(topic, JSON.stringify(msg));
         }
         
         // 刷新GPIO状态
@@ -753,7 +869,12 @@
                 command: 'gpio_get_all'
             };
             
-            client.publish(`${topicPrefix}/cmd/gpio/get`, JSON.stringify(msg));
+            const topic = `${topicPrefix}/cmd/gpio/get`;
+            addDebugLog(`→ 请求所有GPIO状态`, 'send');
+            addDebugLog(`  主题: ${topic}`, 'send');
+            addDebugLog(`  消息: ${JSON.stringify(msg)}`, 'send');
+            
+            client.publish(topic, JSON.stringify(msg));
         }
         
         // 刷新系统信息
@@ -769,7 +890,11 @@
                 command: 'system_status'
             };
             
-            client.publish(`${topicPrefix}/cmd/system/status`, JSON.stringify(msg));
+            const topic = `${topicPrefix}/cmd/system/status`;
+            addDebugLog(`→ 请求系统状态`, 'send');
+            addDebugLog(`  主题: ${topic}`, 'send');
+            
+            client.publish(topic, JSON.stringify(msg));
         }
         
         // 更新系统信息
@@ -813,13 +938,18 @@
                 command: 'system_reboot'
             };
             
-            client.publish(`${topicPrefix}/cmd/system/reboot`, JSON.stringify(msg));
+            const topic = `${topicPrefix}/cmd/system/reboot`;
+            addDebugLog(`→ 发送重启命令`, 'send');
+            addDebugLog(`  主题: ${topic}`, 'send');
+            
+            client.publish(topic, JSON.stringify(msg));
             alert('重启命令已发送，设备将在3秒后重启');
         }
         
         // 页面加载完成
         window.addEventListener('load', () => {
-            console.log('ESP32远程控制台已加载');
+            addDebugLog('ESP32远程控制台已加载', 'success');
+            addDebugLog('版本: v1.1 (调试增强版)', 'info');
             // 初始化GPIO列表（使用默认配置）
             renderGPIOList();
             // 初始化时隐藏心跳
