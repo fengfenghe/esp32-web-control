@@ -7,8 +7,23 @@
     <meta name="theme-color" content="#667eea">
     <title>ESP32远程控制台</title>
     
-    <!-- MQTT.js库 -->
-    <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+    <!-- MQTT.js库 - 使用多个CDN备用 -->
+    <script src="https://unpkg.com/mqtt@5.3.5/dist/mqtt.min.js" 
+            onerror="this.onerror=null; this.src='https://cdn.jsdelivr.net/npm/mqtt@5.3.5/dist/mqtt.min.js'"></script>
+    <script>
+        // 检查MQTT是否加载成功
+        window.addEventListener('load', function() {
+            if (typeof mqtt === 'undefined') {
+                console.error('MQTT库加载失败，尝试备用CDN...');
+                var script = document.createElement('script');
+                script.src = 'https://cdnjs.cloudflare.com/ajax/libs/mqtt/5.3.5/mqtt.min.js';
+                script.onerror = function() {
+                    alert('MQTT库加载失败，请检查网络连接或刷新页面重试');
+                };
+                document.head.appendChild(script);
+            }
+        });
+    </script>
     
     <style>
         * {
@@ -591,6 +606,13 @@
         
         // 连接设备
         async function connectDevice() {
+            // 检查MQTT库是否加载
+            if (typeof mqtt === 'undefined') {
+                alert('MQTT库未加载，请刷新页面重试。\n\n如果问题持续，可能是网络问题导致CDN无法访问。');
+                addDebugLog('✗ MQTT库未加载', 'error');
+                return;
+            }
+            
             deviceId = document.getElementById('deviceId').value.trim();
             const brokerUrl = document.getElementById('brokerUrl').value.trim();
             
@@ -950,6 +972,17 @@
         window.addEventListener('load', () => {
             addDebugLog('ESP32远程控制台已加载', 'success');
             addDebugLog('版本: v1.1 (调试增强版)', 'info');
+            
+            // 检查MQTT库
+            if (typeof mqtt === 'undefined') {
+                addDebugLog('✗ MQTT库未加载，请刷新页面', 'error');
+                document.getElementById('debugInfo').innerHTML = '⚠️ MQTT库加载失败，请刷新页面';
+                document.getElementById('connectBtn').disabled = true;
+                document.getElementById('connectBtn').innerHTML = '<span>MQTT库加载失败</span>';
+            } else {
+                addDebugLog('✓ MQTT库加载成功', 'success');
+            }
+            
             // 初始化GPIO列表（使用默认配置）
             renderGPIOList();
             // 初始化时隐藏心跳
