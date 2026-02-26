@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="description" content="ESP32远程控制台 - 通过MQTT远程控制ESP32设备">
     <meta name="theme-color" content="#667eea">
-    <title>ESP32远程控制台 v2.3.1</title>
+    <title>ESP32远程控制台 v2.5.3</title>
     
     <!-- SHA-256库 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/js-sha256/0.9.0/sha256.min.js"></script>
@@ -530,6 +530,137 @@
         .settings-link a:hover {
             text-decoration: underline;
         }
+        
+        /* 自动刷新控制面板样式 */
+        .auto-refresh-panel {
+            background: #f0f9ff;
+            border: 2px solid #3b82f6;
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .auto-refresh-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .auto-refresh-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1e40af;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .auto-refresh-controls {
+            display: grid;
+            grid-template-columns: 1fr auto;
+            gap: 10px;
+            align-items: center;
+        }
+        
+        .refresh-interval-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        
+        .refresh-interval-group label {
+            font-size: 14px;
+            color: #1e40af;
+            font-weight: 500;
+        }
+        
+        .refresh-interval-group select {
+            padding: 8px 12px;
+            border: 2px solid #3b82f6;
+            border-radius: 8px;
+            font-size: 14px;
+            background: white;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        
+        .refresh-interval-group select:focus {
+            outline: none;
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+        
+        .toggle-switch {
+            position: relative;
+            display: inline-block;
+            width: 60px;
+            height: 30px;
+        }
+        
+        .toggle-switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .toggle-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #cbd5e1;
+            transition: 0.4s;
+            border-radius: 30px;
+        }
+        
+        .toggle-slider:before {
+            position: absolute;
+            content: "";
+            height: 22px;
+            width: 22px;
+            left: 4px;
+            bottom: 4px;
+            background-color: white;
+            transition: 0.4s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .toggle-slider {
+            background-color: var(--success-color);
+        }
+        
+        input:checked + .toggle-slider:before {
+            transform: translateX(30px);
+        }
+        
+        .refresh-status {
+            font-size: 12px;
+            color: #6b7280;
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .refresh-status .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #cbd5e1;
+        }
+        
+        .refresh-status .status-indicator.active {
+            background: var(--success-color);
+            animation: pulse 2s infinite;
+        }
+        
+        .countdown-timer {
+            font-weight: 600;
+            color: var(--primary-color);
+        }
     </style>
 </head>
 <body>
@@ -585,6 +716,11 @@
                 <span id="heartbeat">💚</span>
                 <span id="deviceInfo">--</span>
             </div>
+            <div class="status-item">
+                <button class="btn btn-danger" id="disconnectBtn" style="padding: 6px 12px; font-size: 12px; display: none;" onclick="disconnectDevice()">
+                    断开连接
+                </button>
+            </div>
         </div>
         
         <!-- 调试信息栏 -->
@@ -614,7 +750,10 @@
                     
                     <div class="input-group">
                         <label for="deviceId">设备ID</label>
-                        <input type="text" id="deviceId" placeholder="例如: 8173a0" value="8173a0">
+                        <input type="text" id="deviceId" placeholder="例如: c85ccc8173a0 (12位完整MAC)" value="">
+                        <div style="font-size: 12px; color: #6b7280; margin-top: 5px;">
+                            💡 支持6位或12位MAC地址格式
+                        </div>
                     </div>
                     
                     <div class="input-group">
@@ -626,12 +765,18 @@
                         <span>连接设备</span>
                     </button>
                     
+                    <button class="btn btn-warning btn-block" onclick="clearSavedConfig()" style="margin-top: 10px; background: #f59e0b;">
+                        <span>🗑️ 清除保存的配置</span>
+                    </button>
+                    
                     <div class="info-box" style="margin-top: 20px;">
                         <strong>💡 使用提示:</strong>
-                        1. 设备ID是MAC地址后6位（例如：8173a0）<br>
-                        2. 可以在ESP32的Web界面查看完整设备ID<br>
-                        3. 默认使用免费的EMQX Cloud服务器<br>
-                        4. 确保ESP32已连接WiFi并启用MQTT
+                        1. <strong>新版本</strong>：设备ID为12位完整MAC地址（例如：c85ccc8173a0）<br>
+                        2. <strong>旧版本</strong>：设备ID为MAC地址后6位（例如：8173a0）<br>
+                        3. 可以在ESP32的Web界面MQTT页面查看完整设备ID<br>
+                        4. 默认使用免费的EMQX Cloud服务器<br>
+                        5. 确保ESP32已连接WiFi并启用MQTT<br>
+                        6. 如果自动连接到旧设备，点击"清除保存的配置"按钮
                     </div>
                 </div>
             </div>
@@ -646,6 +791,36 @@
                 
                 <!-- GPIO控制标签 -->
                 <div id="gpioTab" class="tab-content active">
+                    <!-- 自动刷新控制面板 -->
+                    <div class="auto-refresh-panel">
+                        <div class="auto-refresh-header">
+                            <div class="auto-refresh-title">
+                                🔄 自动刷新GPIO状态
+                            </div>
+                        </div>
+                        <div class="auto-refresh-controls">
+                            <div class="refresh-interval-group">
+                                <label for="refreshInterval">刷新间隔:</label>
+                                <input type="number" id="refreshInterval" min="1" max="3600" value="5" 
+                                       onchange="updateRefreshInterval()" 
+                                       onblur="validateRefreshInterval()"
+                                       style="width: 80px; padding: 8px 12px; border: 2px solid #3b82f6; border-radius: 8px; font-size: 14px; text-align: center;">
+                                <span style="font-size: 14px; color: #1e40af; margin-left: 5px;">秒</span>
+                            </div>
+                            <label class="toggle-switch">
+                                <input type="checkbox" id="autoRefreshToggle" onchange="toggleAutoRefresh()">
+                                <span class="toggle-slider"></span>
+                            </label>
+                        </div>
+                        <div class="refresh-status" id="refreshStatus">
+                            <span class="status-indicator" id="refreshIndicator"></span>
+                            <span id="refreshStatusText">自动刷新已关闭</span>
+                        </div>
+                        <div style="font-size: 11px; color: #6b7280; margin-top: 8px;">
+                            💡 提示：输入1-3600之间的秒数，推荐3-60秒
+                        </div>
+                    </div>
+                    
                     <div class="section">
                         <div class="section-title">
                             ⚡ GPIO控制
@@ -655,6 +830,13 @@
                         </div>
                         <div class="gpio-grid" id="gpioList">
                             <!-- GPIO卡片将动态生成 -->
+                        </div>
+                        
+                        <!-- GPIO说明 -->
+                        <div class="info-box" style="margin-top: 20px; font-size: 13px;">
+                            <strong>💡 GPIO说明</strong><br>
+                            📍 输出GPIO：可以通过按钮控制开关状态<br>
+                            📥 输入GPIO：只读模式，仅显示当前电平状态，无法控制
                         </div>
                     </div>
                 </div>
@@ -688,7 +870,7 @@
         
         <!-- 页脚 -->
         <div class="footer">
-            ESP32远程控制台 v2.3.1 (输入GPIO支持 + 密码保护) | Powered by MQTT & Cloudflare Pages<br>
+            ESP32远程控制台 v2.5.3 (修复版) | Powered by MQTT & Cloudflare Pages<br>
             <a href="#" onclick="logout(); return false;" style="color: var(--danger-color); text-decoration: none;">退出登录</a>
         </div>
     </div>
@@ -841,15 +1023,30 @@
             const config = loadConfig();
             if (config.deviceId) {
                 document.getElementById('deviceId').value = config.deviceId;
+                addDebugLog(`已加载保存的设备ID: ${config.deviceId}`, 'info');
             }
             if (config.brokerUrl) {
                 document.getElementById('brokerUrl').value = config.brokerUrl;
             }
             
-            // 自动连接
-            if (config.autoConnect && config.deviceId) {
-                addDebugLog('自动连接设备...', 'info');
-                setTimeout(() => connectDevice(), 1000);
+            // 加载自动刷新配置
+            if (config.autoRefreshInterval) {
+                autoRefreshInterval = config.autoRefreshInterval;
+                document.getElementById('refreshInterval').value = autoRefreshInterval;
+                addDebugLog(`已加载自动刷新间隔: ${autoRefreshInterval}秒`, 'info');
+            }
+            
+            // 显示提示信息
+            if (config.deviceId && config.autoConnect) {
+                addDebugLog('检测到保存的配置，可以点击"连接设备"按钮连接', 'info');
+                addDebugLog('如需修改设备ID，请点击"清除保存的配置"按钮', 'warning');
+                
+                // 高亮显示设备ID输入框
+                const deviceIdInput = document.getElementById('deviceId');
+                deviceIdInput.style.border = '2px solid #f59e0b';
+                setTimeout(() => {
+                    deviceIdInput.style.border = '';
+                }, 3000);
             }
             
             addDebugLog('应用初始化完成', 'success');
@@ -862,6 +1059,14 @@
         let currentTab = 'gpio';
         let debugLogVisible = false;
         let messageCount = 0;
+        
+        // 自动刷新相关变量
+        let autoRefreshEnabled = false;
+        let autoRefreshInterval = 5; // 默认5秒
+        let autoRefreshTimer = null;
+        let refreshCountdown = 0;
+        let countdownTimer = null;
+        let lastScrollPosition = 0; // 记录滚动位置
         
         // GPIO配置（默认）
         const defaultGPIOs = [
@@ -1046,18 +1251,75 @@
             const statusText = document.getElementById('statusText');
             const deviceInfo = document.getElementById('deviceInfo');
             const heartbeat = document.getElementById('heartbeat');
+            const disconnectBtn = document.getElementById('disconnectBtn');
             
             if (status === 'online') {
                 statusDot.classList.add('online');
                 statusText.textContent = '已连接';
                 deviceInfo.textContent = device;
                 heartbeat.style.display = 'inline-block';
+                disconnectBtn.style.display = 'inline-block';
             } else {
                 statusDot.classList.remove('online');
                 statusText.textContent = '未连接';
                 deviceInfo.textContent = '--';
                 heartbeat.style.display = 'none';
+                disconnectBtn.style.display = 'none';
             }
+        }
+        
+        // 断开连接
+        function disconnectDevice() {
+            if (!confirm('确定要断开连接吗？断开后可以修改设备ID。')) {
+                return;
+            }
+            
+            addDebugLog('断开MQTT连接...', 'warning');
+            
+            // 停止自动刷新
+            if (autoRefreshEnabled) {
+                stopAutoRefresh();
+                document.getElementById('autoRefreshToggle').checked = false;
+                autoRefreshEnabled = false;
+                updateRefreshStatus();
+                addDebugLog('自动刷新已停止', 'info');
+            }
+            
+            if (client) {
+                client.end();
+                client = null;
+            }
+            
+            // 更新状态
+            updateStatus('offline');
+            
+            // 显示连接界面，隐藏控制界面
+            document.getElementById('connectSection').classList.remove('hidden');
+            document.getElementById('controlSection').classList.add('hidden');
+            
+            // 重置连接按钮
+            const connectBtn = document.getElementById('connectBtn');
+            connectBtn.disabled = false;
+            connectBtn.innerHTML = '<span>连接设备</span>';
+            
+            addDebugLog('已断开连接，可以修改设备ID', 'success');
+        }
+        
+        // 清除保存的配置
+        function clearSavedConfig() {
+            if (!confirm('确定要清除保存的配置吗？\n这将清除设备ID、Broker地址和自动连接设置。')) {
+                return;
+            }
+            
+            // 清除配置
+            localStorage.removeItem(CONFIG_KEY);
+            
+            // 重置输入框
+            document.getElementById('deviceId').value = '';
+            document.getElementById('brokerUrl').value = 'broker.emqx.io';
+            
+            addDebugLog('已清除保存的配置', 'success');
+            alert('配置已清除！\n现在可以输入新的设备ID。');
         }
         
         // 处理MQTT消息
@@ -1101,19 +1363,50 @@
             }
         }
         
-        // 更新GPIO状态
+        // 更新GPIO状态（局部更新，不重新渲染）
         function updateGPIOState(data) {
             if (data.data) {
                 const gpio = data.data;
+                const oldState = gpioStates[gpio.pin];
                 gpioStates[gpio.pin] = gpio.state;
                 
-                addDebugLog(`  GPIO ${gpio.pin} 状态: ${gpio.state ? 'ON' : 'OFF'}`, 'success');
+                // 只在状态真正变化时记录日志
+                if (oldState !== gpio.state) {
+                    addDebugLog(`  GPIO ${gpio.pin} 状态变化: ${oldState ? 'ON' : 'OFF'} → ${gpio.state ? 'ON' : 'OFF'}`, 'success');
+                }
                 
-                // 更新界面
+                // 局部更新界面（不重新渲染整个列表）
                 const stateEl = document.getElementById(`state-${gpio.pin}`);
                 if (stateEl) {
-                    stateEl.className = gpio.state ? 'gpio-state on' : 'gpio-state off';
-                    stateEl.innerHTML = gpio.state ? '● 开启' : '○ 关闭';
+                    // 判断是输入还是输出GPIO
+                    const isOutput = gpio.is_output !== false;
+                    
+                    // 根据GPIO类型设置不同的文本
+                    const newClass = gpio.state ? 'gpio-state on' : 'gpio-state off';
+                    const newText = isOutput 
+                        ? (gpio.state ? '● 开启' : '○ 关闭')
+                        : (gpio.state ? '● 高电平' : '○ 低电平');
+                    
+                    addDebugLog(`    更新GPIO ${gpio.pin} DOM: class="${newClass}", text="${newText}"`, 'info');
+                    
+                    // 只在状态真正变化时更新
+                    if (stateEl.className !== newClass) {
+                        stateEl.className = newClass;
+                        stateEl.innerHTML = newText;
+                        
+                        addDebugLog(`    ✓ GPIO ${gpio.pin} 界面已更新`, 'success');
+                        
+                        // 添加闪烁效果提示状态变化
+                        stateEl.style.transition = 'all 0.3s ease';
+                        stateEl.style.transform = 'scale(1.1)';
+                        setTimeout(() => {
+                            stateEl.style.transform = 'scale(1)';
+                        }, 300);
+                    } else {
+                        addDebugLog(`    - GPIO ${gpio.pin} 状态未变化，跳过更新`, 'info');
+                    }
+                } else {
+                    addDebugLog(`    ✗ 找不到GPIO ${gpio.pin} 的状态元素`, 'error');
                 }
             }
         }
@@ -1126,10 +1419,31 @@
                 // 如果是GPIO数组
                 if (Array.isArray(data.data)) {
                     addDebugLog(`  收到${data.data.length}个GPIO状态`, 'success');
-                    data.data.forEach(gpio => {
-                        gpioStates[gpio.pin] = gpio.state;
-                    });
-                    renderGPIOList(data.data);
+                    
+                    // 检查是否是首次加载（GPIO列表为空或没有GPIO卡片）
+                    const listEl = document.getElementById('gpioList');
+                    const childCount = listEl.children.length;
+                    const hasGpioCards = listEl.querySelector('.gpio-card') !== null;
+                    const isFirstLoad = childCount === 0 || !hasGpioCards;
+                    
+                    addDebugLog(`  GPIO列表子元素数量: ${childCount}`, 'info');
+                    addDebugLog(`  是否有GPIO卡片: ${hasGpioCards}`, 'info');
+                    addDebugLog(`  判断为: ${isFirstLoad ? '首次加载' : '后续刷新'}`, 'info');
+                    
+                    if (isFirstLoad) {
+                        // 首次加载：渲染完整列表
+                        addDebugLog('  → 执行完整渲染', 'info');
+                        data.data.forEach(gpio => {
+                            gpioStates[gpio.pin] = gpio.state;
+                        });
+                        renderGPIOList(data.data);
+                    } else {
+                        // 后续刷新：局部更新，不重新渲染
+                        addDebugLog('  → 执行局部更新（无页面跳动）', 'info');
+                        data.data.forEach(gpio => {
+                            updateGPIOState({ data: gpio });
+                        });
+                    }
                 }
                 // 如果是单个GPIO
                 else if (data.data.pin !== undefined) {
@@ -1145,18 +1459,21 @@
             }
         }
         
-        // 渲染GPIO列表
+        // 渲染GPIO列表（仅首次加载时调用）
         function renderGPIOList(gpios = null) {
             const listEl = document.getElementById('gpioList');
+            
+            addDebugLog(`开始渲染GPIO列表，当前子元素: ${listEl.children.length}个`, 'info');
+            
             listEl.innerHTML = '';
             
             const gpioList = gpios || defaultGPIOs;
             
-            addDebugLog(`渲染${gpioList.length}个GPIO控件`, 'info');
+            addDebugLog(`准备渲染${gpioList.length}个GPIO控件`, 'info');
             
             gpioList.forEach(gpio => {
                 const state = gpioStates[gpio.pin] || 0;
-                const isOutput = gpio.is_output !== false; // 默认为输出
+                const isOutput = gpio.is_output !== false; // 默认为输出，只有明确为false时才是输入
                 const card = document.createElement('div');
                 card.className = 'gpio-card';
                 
@@ -1177,7 +1494,7 @@
                         </div>
                     `;
                 } else {
-                    // 输入GPIO - 只显示状态
+                    // 输入GPIO - 只显示状态（简洁版）
                     card.innerHTML = `
                         <div class="gpio-header">
                             <span class="gpio-name">📥 GPIO ${gpio.pin} - ${gpio.name} (输入)</span>
@@ -1185,15 +1502,13 @@
                                 ${state ? '● 高电平' : '○ 低电平'}
                             </span>
                         </div>
-                        <div class="info-box" style="margin-top: 10px; font-size: 13px;">
-                            <strong>只读状态</strong><br>
-                            此GPIO配置为输入模式，无法控制，仅显示当前电平状态
-                        </div>
                     `;
                 }
                 
                 listEl.appendChild(card);
             });
+            
+            addDebugLog(`GPIO列表渲染完成，现有子元素: ${listEl.children.length}个`, 'success');
         }
         
         // 控制GPIO
@@ -1244,6 +1559,9 @@
                 alert('设备未连接');
                 return;
             }
+            
+            // 局部更新模式下不需要保存滚动位置
+            // 因为不会重新渲染整个列表，页面不会跳动
             
             const msg = {
                 msg_id: Date.now().toString(),
@@ -1328,6 +1646,153 @@
             alert('重启命令已发送，设备将在3秒后重启');
         }
         
+        // ==================== 自动刷新功能 ====================
+        
+        // 验证刷新间隔输入
+        function validateRefreshInterval() {
+            const input = document.getElementById('refreshInterval');
+            let value = parseInt(input.value);
+            
+            // 验证范围
+            if (isNaN(value) || value < 1) {
+                value = 1;
+                addDebugLog('刷新间隔不能小于1秒，已设置为1秒', 'warning');
+            } else if (value > 3600) {
+                value = 3600;
+                addDebugLog('刷新间隔不能大于3600秒，已设置为3600秒', 'warning');
+            }
+            
+            // 更新输入框
+            input.value = value;
+            autoRefreshInterval = value;
+            
+            // 保存到配置
+            const config = loadConfig();
+            config.autoRefreshInterval = value;
+            saveConfig(config);
+            
+            return value;
+        }
+        
+        // 保存滚动位置
+        function saveScrollPosition() {
+            lastScrollPosition = window.pageYOffset || document.documentElement.scrollTop;
+        }
+        
+        // 恢复滚动位置
+        function restoreScrollPosition() {
+            if (lastScrollPosition > 0) {
+                window.scrollTo(0, lastScrollPosition);
+            }
+        }
+        
+        // 切换自动刷新
+        function toggleAutoRefresh() {
+            const toggle = document.getElementById('autoRefreshToggle');
+            autoRefreshEnabled = toggle.checked;
+            
+            if (autoRefreshEnabled) {
+                if (!client || !client.connected) {
+                    alert('请先连接设备');
+                    toggle.checked = false;
+                    autoRefreshEnabled = false;
+                    return;
+                }
+                startAutoRefresh();
+                addDebugLog(`✓ 自动刷新已启用 (间隔: ${autoRefreshInterval}秒)`, 'success');
+            } else {
+                stopAutoRefresh();
+                addDebugLog('自动刷新已停止', 'info');
+            }
+            
+            updateRefreshStatus();
+        }
+        
+        // 更新刷新间隔
+        function updateRefreshInterval() {
+            const input = document.getElementById('refreshInterval');
+            let value = validateRefreshInterval(); // 验证并获取有效值
+            
+            addDebugLog(`刷新间隔已设置为 ${value}秒`, 'info');
+            
+            // 如果自动刷新正在运行，重启定时器
+            if (autoRefreshEnabled) {
+                stopAutoRefresh();
+                startAutoRefresh();
+                addDebugLog(`刷新间隔已更新为 ${value}秒`, 'info');
+            }
+        }
+        
+        // 启动自动刷新
+        function startAutoRefresh() {
+            // 清除现有定时器
+            stopAutoRefresh();
+            
+            // 立即刷新一次
+            refreshGPIO();
+            
+            // 启动倒计时
+            refreshCountdown = autoRefreshInterval;
+            startCountdown();
+            
+            // 设置定时器
+            autoRefreshTimer = setInterval(() => {
+                if (client && client.connected) {
+                    refreshGPIO();
+                    refreshCountdown = autoRefreshInterval;
+                } else {
+                    // 如果连接断开，停止自动刷新
+                    stopAutoRefresh();
+                    document.getElementById('autoRefreshToggle').checked = false;
+                    autoRefreshEnabled = false;
+                    updateRefreshStatus();
+                    addDebugLog('连接断开，自动刷新已停止', 'warning');
+                }
+            }, autoRefreshInterval * 1000);
+        }
+        
+        // 停止自动刷新
+        function stopAutoRefresh() {
+            if (autoRefreshTimer) {
+                clearInterval(autoRefreshTimer);
+                autoRefreshTimer = null;
+            }
+            if (countdownTimer) {
+                clearInterval(countdownTimer);
+                countdownTimer = null;
+            }
+            refreshCountdown = 0;
+        }
+        
+        // 启动倒计时
+        function startCountdown() {
+            if (countdownTimer) {
+                clearInterval(countdownTimer);
+            }
+            
+            countdownTimer = setInterval(() => {
+                refreshCountdown--;
+                if (refreshCountdown <= 0) {
+                    refreshCountdown = autoRefreshInterval;
+                }
+                updateRefreshStatus();
+            }, 1000);
+        }
+        
+        // 更新刷新状态显示
+        function updateRefreshStatus() {
+            const indicator = document.getElementById('refreshIndicator');
+            const statusText = document.getElementById('refreshStatusText');
+            
+            if (autoRefreshEnabled) {
+                indicator.classList.add('active');
+                statusText.innerHTML = `自动刷新已启用 - 下次刷新: <span class="countdown-timer">${refreshCountdown}秒</span>`;
+            } else {
+                indicator.classList.remove('active');
+                statusText.textContent = '自动刷新已关闭';
+            }
+        }
+        
         // 页面加载完成
         window.addEventListener('load', () => {
             // 初始化密码系统
@@ -1346,7 +1811,7 @@
             }
             
             addDebugLog('ESP32远程控制台已加载', 'success');
-            addDebugLog('版本: v2.3.1 (输入GPIO支持 + 密码保护)', 'info');
+            addDebugLog('版本: v2.5.3 (修复版)', 'info');
             
             // 检查MQTT库
             if (typeof mqtt === 'undefined') {
