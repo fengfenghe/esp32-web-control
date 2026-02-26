@@ -287,6 +287,42 @@
             box-shadow: var(--shadow);
         }
         
+        /* GPIO分组样式 */
+        .gpio-group {
+            background: #f0f9ff;
+            border: 2px solid #3b82f6;
+            border-radius: 12px;
+            padding: 20px;
+            margin-bottom: 15px;
+        }
+        
+        .gpio-group-header {
+            font-size: 16px;
+            font-weight: 600;
+            color: #1e40af;
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .gpio-group-content {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 15px;
+        }
+        
+        .gpio-group .gpio-card {
+            margin: 0;
+            background: white;
+        }
+        
+        @media (max-width: 640px) {
+            .gpio-group-content {
+                grid-template-columns: 1fr;
+            }
+        }
+        
         .gpio-header {
             display: flex;
             justify-content: space-between;
@@ -322,8 +358,18 @@
         
         .gpio-controls {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(100px, 1fr));
-            gap: 10px;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+        }
+        
+        /* 分组内的GPIO控制按钮 - 更紧凑 */
+        .gpio-group .gpio-controls {
+            gap: 6px;
+        }
+        
+        .gpio-group .gpio-controls .btn {
+            padding: 10px 8px;
+            font-size: 13px;
         }
         
         .info-box {
@@ -1518,61 +1564,67 @@
             
             addDebugLog(`准备渲染${gpioList.length}个GPIO控件`, 'info');
             
+            // 按名称分组GPIO
+            const groupedGPIOs = {};
             gpioList.forEach(gpio => {
-                const state = gpioStates[gpio.pin] || 0;
-                const isOutput = gpio.is_output !== false; // 默认为输出，只有明确为false时才是输入
-                const card = document.createElement('div');
-                card.className = 'gpio-card';
-                
-                // 根据GPIO类型显示不同的内容
-                if (isOutput) {
-                    // 输出GPIO - 显示控制按钮
-                    card.innerHTML = `
-                        <div class="gpio-header">
-                            <span class="gpio-name">📍 GPIO ${gpio.pin} - ${gpio.name}</span>
-                            <span class="gpio-state ${state ? 'on' : 'off'}" id="state-${gpio.pin}">
-                                ${state ? '● 开启' : '○ 关闭'}
-                            </span>
-                        </div>
-                        <div class="gpio-controls">
-                            <button class="btn btn-success" onclick="controlGPIO(${gpio.pin}, 1)">开启</button>
-                            <button class="btn btn-danger" onclick="controlGPIO(${gpio.pin}, 0)">关闭</button>
-                            <button class="btn btn-warning" onclick="toggleGPIO(${gpio.pin})">切换</button>
-                        </div>
-                    `;
-                } else {
-                    // 输入GPIO - 只显示状态（简洁版）
-                    card.innerHTML = `
-                        <div class="gpio-header">
-                            <span class="gpio-name">📥 GPIO ${gpio.pin} - ${gpio.name} (输入)</span>
-                            <span class="gpio-state ${state ? 'on' : 'off'}" id="state-${gpio.pin}">
-                                ${state ? '● 高电平' : '○ 低电平'}
-                            </span>
-                        </div>
-                    `;
+                const name = gpio.name || `GPIO ${gpio.pin}`;
+                if (!groupedGPIOs[name]) {
+                    groupedGPIOs[name] = [];
                 }
-                
-                listEl.appendChild(card);
+                groupedGPIOs[name].push(gpio);
+            });
+            
+            addDebugLog(`GPIO分组: ${Object.keys(groupedGPIOs).length}个不同名称`, 'info');
+            
+            // 渲染每个分组
+            Object.entries(groupedGPIOs).forEach(([name, gpios]) => {
+                if (gpios.length > 1) {
+                    // 多个GPIO同名：创建分组容器
+                    addDebugLog(`  创建分组: ${name} (${gpios.length}个GPIO)`, 'info');
+                    const group = document.createElement('div');
+                    group.className = 'gpio-group';
+                    group.setAttribute('data-group-name', name);
+                    
+                    group.innerHTML = `
+                        <div class="gpio-group-header">
+                            🏷️ ${name}
+                        </div>
+                        <div class="gpio-group-content" id="group-${name.replace(/\s+/g, '-')}">
+                        </div>
+                    `;
+                    
+                    listEl.appendChild(group);
+                    
+                    const groupContent = group.querySelector('.gpio-group-content');
+                    
+                    // 在分组内渲染每个GPIO
+                    gpios.forEach(gpio => {
+                        const card = createGPIOCard(gpio);
+                        groupContent.appendChild(card);
+                    });
+                } else {
+                    // 单个GPIO：直接添加卡片
+                    const card = createGPIOCard(gpios[0]);
+                    listEl.appendChild(card);
+                }
             });
             
             addDebugLog(`GPIO列表渲染完成，现有子元素: ${listEl.children.length}个`, 'success');
         }
         
-        // 添加单个GPIO卡片（用于动态添加新GPIO）
-        function addGPIOCard(gpio) {
-            const listEl = document.getElementById('gpioList');
-            const state = gpio.state || 0;
+        // 创建GPIO卡片（辅助函数）
+        function createGPIOCard(gpio) {
+            const state = gpioStates[gpio.pin] || 0;
             const isOutput = gpio.is_output !== false;
-            
             const card = document.createElement('div');
             card.className = 'gpio-card';
-            card.style.animation = 'slideIn 0.3s ease-out'; // 添加动画效果
+            card.setAttribute('data-gpio-pin', gpio.pin);
             
             if (isOutput) {
                 // 输出GPIO - 显示控制按钮
                 card.innerHTML = `
                     <div class="gpio-header">
-                        <span class="gpio-name">📍 GPIO ${gpio.pin} - ${gpio.name}</span>
+                        <span class="gpio-name">📍 GPIO ${gpio.pin}</span>
                         <span class="gpio-state ${state ? 'on' : 'off'}" id="state-${gpio.pin}">
                             ${state ? '● 开启' : '○ 关闭'}
                         </span>
@@ -1587,7 +1639,7 @@
                 // 输入GPIO - 只显示状态
                 card.innerHTML = `
                     <div class="gpio-header">
-                        <span class="gpio-name">📥 GPIO ${gpio.pin} - ${gpio.name} (输入)</span>
+                        <span class="gpio-name">📥 GPIO ${gpio.pin} (输入)</span>
                         <span class="gpio-state ${state ? 'on' : 'off'}" id="state-${gpio.pin}">
                             ${state ? '● 高电平' : '○ 低电平'}
                         </span>
@@ -1595,7 +1647,75 @@
                 `;
             }
             
-            listEl.appendChild(card);
+            return card;
+        }
+        
+        // 添加单个GPIO卡片（用于动态添加新GPIO）
+        function addGPIOCard(gpio) {
+            const listEl = document.getElementById('gpioList');
+            const name = gpio.name || `GPIO ${gpio.pin}`;
+            
+            // 检查是否已存在同名分组
+            const existingGroup = listEl.querySelector(`[data-group-name="${name}"]`);
+            
+            if (existingGroup) {
+                // 已存在分组：添加到分组内
+                addDebugLog(`  添加GPIO ${gpio.pin}到现有分组: ${name}`, 'info');
+                const groupContent = existingGroup.querySelector('.gpio-group-content');
+                const card = createGPIOCard(gpio);
+                card.style.animation = 'slideIn 0.3s ease-out';
+                groupContent.appendChild(card);
+            } else {
+                // 检查是否有其他GPIO使用相同名称
+                const allCards = listEl.querySelectorAll('.gpio-card[data-gpio-pin]');
+                let sameNameGPIO = null;
+                
+                allCards.forEach(card => {
+                    const pin = card.getAttribute('data-gpio-pin');
+                    const cardName = card.querySelector('.gpio-name').textContent;
+                    if (cardName.includes(name) && !card.closest('.gpio-group')) {
+                        sameNameGPIO = { pin: pin, element: card };
+                    }
+                });
+                
+                if (sameNameGPIO) {
+                    // 找到同名GPIO：创建新分组
+                    addDebugLog(`  创建新分组: ${name} (GPIO ${sameNameGPIO.pin} + ${gpio.pin})`, 'info');
+                    
+                    const group = document.createElement('div');
+                    group.className = 'gpio-group';
+                    group.setAttribute('data-group-name', name);
+                    group.style.animation = 'slideIn 0.3s ease-out';
+                    
+                    group.innerHTML = `
+                        <div class="gpio-group-header">
+                            🏷️ ${name}
+                        </div>
+                        <div class="gpio-group-content" id="group-${name.replace(/\s+/g, '-')}">
+                        </div>
+                    `;
+                    
+                    // 替换原有卡片为分组
+                    sameNameGPIO.element.replaceWith(group);
+                    
+                    const groupContent = group.querySelector('.gpio-group-content');
+                    
+                    // 重新创建原有GPIO卡片并添加到分组
+                    const oldPin = parseInt(sameNameGPIO.pin);
+                    const oldGPIO = { pin: oldPin, name: name, state: gpioStates[oldPin], is_output: true };
+                    groupContent.appendChild(createGPIOCard(oldGPIO));
+                    
+                    // 添加新GPIO到分组
+                    groupContent.appendChild(createGPIOCard(gpio));
+                } else {
+                    // 独立GPIO：直接添加卡片
+                    addDebugLog(`  添加独立GPIO ${gpio.pin}: ${name}`, 'info');
+                    const card = createGPIOCard(gpio);
+                    card.style.animation = 'slideIn 0.3s ease-out';
+                    listEl.appendChild(card);
+                }
+            }
+            
             addDebugLog(`  ✓ 已添加GPIO ${gpio.pin} 卡片`, 'success');
         }
         
