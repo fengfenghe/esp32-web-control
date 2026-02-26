@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="description" content="ESP32远程控制台 - 通过MQTT远程控制ESP32设备">
     <meta name="theme-color" content="#667eea">
-    <title>ESP32远程控制台 v2.5.3</title>
+    <title>ESP32远程控制台 v2.5.4</title>
     
     <!-- SHA-256库 -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/js-sha256/0.9.0/sha256.min.js"></script>
@@ -870,7 +870,7 @@
         
         <!-- 页脚 -->
         <div class="footer">
-            ESP32远程控制台 v2.5.3 (修复版) | Powered by MQTT & Cloudflare Pages<br>
+            ESP32远程控制台 v2.5.4 (优化版) | Powered by MQTT & Cloudflare Pages<br>
             <a href="#" onclick="logout(); return false;" style="color: var(--danger-color); text-decoration: none;">退出登录</a>
         </div>
     </div>
@@ -1438,10 +1438,57 @@
                         });
                         renderGPIOList(data.data);
                     } else {
-                        // 后续刷新：局部更新，不重新渲染
-                        addDebugLog('  → 执行局部更新（无页面跳动）', 'info');
+                        // 后续刷新：智能更新（添加新GPIO、移除旧GPIO、更新现有GPIO）
+                        addDebugLog('  → 执行智能更新（动态同步GPIO列表）', 'info');
+                        
+                        // 获取ESP32返回的GPIO引脚列表
+                        const espGpioPins = data.data.map(gpio => gpio.pin);
+                        
+                        // 获取页面当前显示的GPIO引脚列表
+                        const currentCards = listEl.querySelectorAll('.gpio-card');
+                        const currentPins = Array.from(currentCards).map(card => {
+                            const stateEl = card.querySelector('[id^="state-"]');
+                            return stateEl ? parseInt(stateEl.id.replace('state-', '')) : null;
+                        }).filter(pin => pin !== null);
+                        
+                        // 找出需要添加的GPIO（ESP32有但页面没有）
+                        const pinsToAdd = espGpioPins.filter(pin => !currentPins.includes(pin));
+                        
+                        // 找出需要移除的GPIO（页面有但ESP32没有）
+                        const pinsToRemove = currentPins.filter(pin => !espGpioPins.includes(pin));
+                        
+                        // 移除不存在的GPIO
+                        if (pinsToRemove.length > 0) {
+                            addDebugLog(`  移除${pinsToRemove.length}个GPIO: ${pinsToRemove.join(', ')}`, 'warning');
+                            pinsToRemove.forEach(pin => {
+                                const cardToRemove = Array.from(currentCards).find(card => {
+                                    const stateEl = card.querySelector(`#state-${pin}`);
+                                    return stateEl !== null;
+                                });
+                                if (cardToRemove) {
+                                    cardToRemove.remove();
+                                    delete gpioStates[pin];
+                                }
+                            });
+                        }
+                        
+                        // 添加新的GPIO
+                        if (pinsToAdd.length > 0) {
+                            addDebugLog(`  添加${pinsToAdd.length}个新GPIO: ${pinsToAdd.join(', ')}`, 'success');
+                            pinsToAdd.forEach(pin => {
+                                const gpioData = data.data.find(g => g.pin === pin);
+                                if (gpioData) {
+                                    addGPIOCard(gpioData);
+                                    gpioStates[pin] = gpioData.state;
+                                }
+                            });
+                        }
+                        
+                        // 更新现有GPIO的状态
                         data.data.forEach(gpio => {
-                            updateGPIOState({ data: gpio });
+                            if (!pinsToAdd.includes(gpio.pin)) {
+                                updateGPIOState({ data: gpio });
+                            }
                         });
                     }
                 }
@@ -1509,6 +1556,47 @@
             });
             
             addDebugLog(`GPIO列表渲染完成，现有子元素: ${listEl.children.length}个`, 'success');
+        }
+        
+        // 添加单个GPIO卡片（用于动态添加新GPIO）
+        function addGPIOCard(gpio) {
+            const listEl = document.getElementById('gpioList');
+            const state = gpio.state || 0;
+            const isOutput = gpio.is_output !== false;
+            
+            const card = document.createElement('div');
+            card.className = 'gpio-card';
+            card.style.animation = 'slideIn 0.3s ease-out'; // 添加动画效果
+            
+            if (isOutput) {
+                // 输出GPIO - 显示控制按钮
+                card.innerHTML = `
+                    <div class="gpio-header">
+                        <span class="gpio-name">📍 GPIO ${gpio.pin} - ${gpio.name}</span>
+                        <span class="gpio-state ${state ? 'on' : 'off'}" id="state-${gpio.pin}">
+                            ${state ? '● 开启' : '○ 关闭'}
+                        </span>
+                    </div>
+                    <div class="gpio-controls">
+                        <button class="btn btn-success" onclick="controlGPIO(${gpio.pin}, 1)">开启</button>
+                        <button class="btn btn-danger" onclick="controlGPIO(${gpio.pin}, 0)">关闭</button>
+                        <button class="btn btn-warning" onclick="toggleGPIO(${gpio.pin})">切换</button>
+                    </div>
+                `;
+            } else {
+                // 输入GPIO - 只显示状态
+                card.innerHTML = `
+                    <div class="gpio-header">
+                        <span class="gpio-name">📥 GPIO ${gpio.pin} - ${gpio.name} (输入)</span>
+                        <span class="gpio-state ${state ? 'on' : 'off'}" id="state-${gpio.pin}">
+                            ${state ? '● 高电平' : '○ 低电平'}
+                        </span>
+                    </div>
+                `;
+            }
+            
+            listEl.appendChild(card);
+            addDebugLog(`  ✓ 已添加GPIO ${gpio.pin} 卡片`, 'success');
         }
         
         // 控制GPIO
@@ -1811,7 +1899,7 @@
             }
             
             addDebugLog('ESP32远程控制台已加载', 'success');
-            addDebugLog('版本: v2.5.3 (修复版)', 'info');
+            addDebugLog('版本: v2.5.4 (优化版)', 'info');
             
             // 检查MQTT库
             if (typeof mqtt === 'undefined') {
